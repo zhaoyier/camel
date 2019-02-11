@@ -17,7 +17,7 @@ import (
 func main() {
 	defer holmes.Start().Stop()
 
-	lizard.Register(1, &demo.DemoReq{}, DemoOp)
+	lizard.Register(1000001, &demo.DemoReq{}, DemoOp)
 
 	c, err := net.Dial("tcp", "127.0.0.1:10000")
 	if err != nil {

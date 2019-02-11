@@ -625,9 +625,10 @@ func asyncWrite(c interface{}, m ZMessage) (err error) {
 	case *ServerConn:
 		//pkt, err = c.belong.opts.codec.Encode(m)
 		sendCh = c.sendCh
-
 	case *ClientConn:
 		//pkt, err = c.opts.codec.Encode(m)
+		sendCh = c.sendCh
+	case *GatewayConn:
 		sendCh = c.sendCh
 	}
 
@@ -647,6 +648,7 @@ func asyncWrite(c interface{}, m ZMessage) (err error) {
 }
 
 func Encode(m ZMessage) []byte {
+	fmt.Printf("===>>encode: %+v\n", m)
 	buf := new(bytes.Buffer)
 	m.Pack(buf)
 	return buf.Bytes()
@@ -655,6 +657,7 @@ func Encode(m ZMessage) []byte {
 /* readLoop() blocking read from connection, deserialize bytes into message,
 then find corresponding handler, put it into channel */
 func readLoop(c WriteCloser, wg *sync.WaitGroup) {
+	fmt.Println("====>>readLoop")
 	var (
 		netid   int64
 		rawConn net.Conn
@@ -717,7 +720,7 @@ func readLoop(c WriteCloser, wg *sync.WaitGroup) {
 				if msg.TSource() == Source_User { //C-G
 					go c.(*GatewayConn).transmit2Server(netid, msg)
 				} else if msg.TSource() == Source_Gateway { //G-S
-					fmt.Printf("====>>source is gateway: %+v\n", msg)
+					fmt.Printf("====>>source is gateway: %+v|%d\n", msg, msg.MessageNumber())
 					handler := GetHandlerFunc(msg.MessageNumber())
 					if handler == nil {
 						fmt.Printf("====>>source is gateway, handle is nil: %t\n", onMessage == nil)
@@ -730,8 +733,16 @@ func readLoop(c WriteCloser, wg *sync.WaitGroup) {
 					handlerCh <- MessageHandler{*msg, handler}
 				} else if msg.TSource() == Source_SRegister { //S-G
 					go c.(*GatewayConn).server2Register(msg)
-				} else { //服务消息-转发到用户
+				} else if msg.TSource() == Source_Server { //服务消息-转发到用户	S-G
+					fmt.Printf("====>>transmit2User:%+v\n", msg)
 					go c.(*GatewayConn).transmit2User(msg)
+				} else if msg.TSource() == Source_ToClient { //G-C
+					//回调接口
+					handler := GetHandlerFunc(msg.MessageNumber())
+					if handler == nil {
+						continue
+					}
+					handlerCh <- MessageHandler{*msg, handler}
 				}
 			}
 
@@ -774,16 +785,17 @@ func writeLoop(c WriteCloser, wg *sync.WaitGroup) {
 	)
 
 	switch c := c.(type) {
-	case *ServerConn:
-		rawConn = c.rawConn
-		sendCh = c.sendCh
-		cDone = c.ctx.Done()
-		sDone = c.belong.ctx.Done()
 	case *ClientConn:
 		rawConn = c.rawConn
 		sendCh = c.sendCh
 		cDone = c.ctx.Done()
 		sDone = nil
+	case *ServerConn:
+	case *GatewayConn:
+		rawConn = c.rawConn
+		sendCh = c.sendCh
+		cDone = c.ctx.Done()
+		sDone = c.belong.ctx.Done()
 	}
 
 	defer func() {
@@ -831,10 +843,11 @@ func writeLoop(c WriteCloser, wg *sync.WaitGroup) {
 // handleLoop() - put handler or timeout callback into worker go-routines
 func handleLoop(c WriteCloser, wg *sync.WaitGroup) {
 	var (
-		cDone        <-chan struct{}
-		sDone        <-chan struct{}
-		timerCh      chan *OnTimeOut
-		handlerCh    chan MessageHandler
+		cDone     <-chan struct{}
+		sDone     <-chan struct{}
+		timerCh   chan *OnTimeOut
+		handlerCh chan MessageHandler
+		//clientHandlerCh chan MessageHandler
 		netID        int64
 		ctx          context.Context
 		askForWorker bool
@@ -878,7 +891,10 @@ func handleLoop(c WriteCloser, wg *sync.WaitGroup) {
 			return
 		case msgHandler := <-handlerCh:
 			msg, handler := msgHandler.message, msgHandler.handler
-			if handler != nil {
+			if handler == nil {
+				break
+			}
+			if msg.TSource() == Source_Gateway {
 				// if askForWorker {
 				// 	err = WorkerPoolInstance().Put(netID, func() {
 				// 		handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
@@ -891,19 +907,41 @@ func handleLoop(c WriteCloser, wg *sync.WaitGroup) {
 				// 	handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
 				// }
 				go func(conn WriteCloser) {
+					fmt.Println("====>>>resp start:")
 					resp, err := handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
+					fmt.Printf("====>>>resp end: %+v|%+v\n", resp, err)
 					if err != nil {
 						fmt.Printf("==>>handle callback error: %+v\n", err)
 						return
 					}
 					fmt.Printf("==>>handle response is: %+v\n", resp)
-					_, err = proto.Marshal(resp.(proto.Message))
+					send := msg
+					send.ReqID = msg.ReqID + 1
+					send.Source = int16(Source_Server)
+					send.Data, err = proto.Marshal(resp.(proto.Message))
 					if err != nil {
 						fmt.Printf("==>>handle marshal error: %+v\n", err)
 					}
-					//TODO conn.Write(data)
+					conn.Write(send)
 				}(c)
+			} else {
+				fmt.Println("===>>client handler")
+				msg, handler := msgHandler.message, msgHandler.handler
+				if handler != nil {
+					go func() {
+						handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
+					}()
+				}
 			}
+
+		// case msgHandler := <-clientHandlerCh:
+		// 	fmt.Println("===>>client handler")
+		// 	msg, handler := msgHandler.message, msgHandler.handler
+		// 	if handler != nil {
+		// 		go func() {
+		// 			handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
+		// 		}()
+		// 	}
 		case timeout := <-timerCh:
 			if timeout != nil {
 				timeoutNetID := NetIDFromContext(timeout.Ctx)
@@ -986,6 +1024,8 @@ func (sc *GatewayConn) server2Register(msg *ZMessage) {
 // 服务到网关，判断是内部消息还是外部
 func (sc *GatewayConn) transmit2User(msg *ZMessage) {
 	if value, ok := sc.belong.conns.Load(msg.ProxyID); ok {
+		fmt.Printf("====>>>transmit2User 002: %d|%+v\n", msg.ProxyID, msg)
+		msg.Source = int16(Source_ToClient)
 		value.(*GatewayConn).Write(*msg)
 		return
 	}

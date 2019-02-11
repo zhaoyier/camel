@@ -12,6 +12,7 @@ enum Source {
   Gateway = 2;
   Server = 3;
   SRegister = 4;
+  ToClient = 5;
 }
 
 enum InternalType {

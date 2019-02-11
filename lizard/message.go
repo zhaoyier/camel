@@ -79,21 +79,22 @@ func GetUnmarshalFunc(msgType int32) reflect.Type {
 
 func GetRegistryMessage(msg ZMessage) interface{} {
 	if unmarshaler, ok := messageRegistry[msg.ReqID]; ok {
-		fmt.Println("====>>10000:", msg.ReqID, len(messageRegistry), msg.Data)
+		fmt.Println("====>>get message 01:", msg.ReqID, len(messageRegistry), msg.Data)
 		req := reflect.New(unmarshaler.msgType.Elem()).Interface()
 		err := proto.Unmarshal(msg.Data, req.(proto.Message))
 		if err != nil {
-			fmt.Println("====>>10001:", err.Error())
+			fmt.Println("v====>>get message 02:", err.Error())
 			return err
 		}
 		return req
 	}
-	fmt.Println("====>>10009:", msg.ReqID, len(messageRegistry))
+	fmt.Println("====>>get message 09:", msg.ReqID, len(messageRegistry))
 	return nil
 }
 
 // GetHandlerFunc returns the corresponding handler function for msgType.
 func GetHandlerFunc(msgType int32) HandlerFunc {
+	fmt.Println("===>>>get handler func len: ", len(messageRegistry))
 	entry, ok := messageRegistry[msgType]
 	if !ok {
 		return nil
@@ -151,7 +152,6 @@ func Scanner(conn net.Conn) *bufio.Scanner {
 		if !atEOF && len(data) > 16 {
 			length := int16(0)
 			binary.Read(bytes.NewReader(data[2:4]), binary.BigEndian, &length)
-			fmt.Printf("===>>read message: %d\n", length)
 			if int(length)+4 <= len(data) {
 				return int(length) + 4, data[:int(length)+4], nil
 			}

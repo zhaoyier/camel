@@ -269,6 +269,7 @@ func (s *Gateway) Start(l net.Listener) error {
 
 		netid := netIdentifier.GetAndIncrement()
 		sc := NewGatewayConn(netid, s, rawConn)
+		fmt.Println("====>>>gateway netid:", netid)
 		sc.SetName(sc.rawConn.RemoteAddr().String())
 
 		s.mu.Lock()

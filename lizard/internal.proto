@@ -1,0 +1,35 @@
+syntax="proto3";
+
+package lizard;
+
+service Internal {
+  rpc RegisterServer(RegisterServerReq) returns(RegisterServerResp);
+}
+
+enum Source {
+  Unknown = 0;
+  User = 1;
+  Gateway = 2;
+  Server = 3;
+  SRegister = 4;
+}
+
+enum InternalType {
+  IUnknown = 0;
+  IPing = 1;
+  IRegister = 2;
+}
+
+message Result {
+  int32 code = 1;
+  string message = 2;
+}
+
+message RegisterServerReq {
+  string addr = 1;
+  int32 modulo = 2;
+}
+
+message RegisterServerResp {
+  Result result = 1;
+}

@@ -1,0 +1,11 @@
+syntax="proto3";
+
+package demo;
+
+message DemoReq{
+  string call = 1;
+}
+
+message DemoResp {
+  string reply = 1;
+}

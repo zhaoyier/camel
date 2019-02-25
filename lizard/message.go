@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +19,15 @@ const (
 	// HeartBeat is the default heart beat message number.
 	HeartBeat = 0
 )
+
+type Method struct {
+	Service   int32
+	Method    reflect.Value
+	ParamType reflect.Type //XXXXRequest的实际类型
+}
+
+type Service interface {
+}
 
 // Handler takes the responsibility to handle incoming messages.
 type Handler interface {
@@ -44,7 +55,8 @@ var (
 	buf *bytes.Buffer
 	// messageRegistry is the registry of all
 	// message-related unmarshal and handle functions.
-	messageRegistry map[int32]handlerUnmarshaler
+	messageRegistry = make(map[int32]handlerUnmarshaler)
+	serviceMap      = make(map[string]Method)
 )
 
 func init() {
@@ -90,6 +102,33 @@ func GetRegistryMessage(msg ZMessage) interface{} {
 	}
 	fmt.Println("====>>get message 09:", msg.ReqID, len(messageRegistry))
 	return nil
+}
+
+func RegisterService(m int32, src Service) {
+	t := reflect.TypeOf(src)
+	v := reflect.ValueOf(src)
+
+	for i := 0; i < t.NumMethod(); i++ {
+		name := t.Method(i).Name
+		name = fmt.Sprintf("%s", md5.Sum([]byte(name)))
+		if _, ok := serviceMap[name]; ok {
+			panic("duplicate register service:" + name)
+		}
+		serviceMap[name] = Method{
+			Service:   m,
+			Method:    v.Method(i),
+			ParamType: t.Method(i).Type.In(2),
+		}
+	}
+}
+
+func GetServiceMethod(method, version string) (*Method, error) {
+	name := fmt.Sprintf("%s", md5.Sum([]byte(method)))
+	m, ok := serviceMap[name]
+	if !ok {
+		return nil, errors.New("method not registered:" + method)
+	}
+	return &m, nil
 }
 
 // GetHandlerFunc returns the corresponding handler function for msgType.

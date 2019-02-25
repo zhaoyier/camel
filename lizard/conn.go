@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"net"
+	"reflect"
 	"sync"
 	"time"
 
@@ -907,18 +908,26 @@ func handleLoop(c WriteCloser, wg *sync.WaitGroup) {
 				// 	handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
 				// }
 				go func(conn WriteCloser) {
-					fmt.Println("====>>>resp start:")
-					resp, err := handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
-					fmt.Printf("====>>>resp end: %+v|%+v\n", resp, err)
-					if err != nil {
-						fmt.Printf("==>>handle callback error: %+v\n", err)
-						return
-					}
-					fmt.Printf("==>>handle response is: %+v\n", resp)
+					method, err := GetServiceMethod("DemoOp2", "")
+					fmt.Printf("===>>invoke start: %+v|%+v\n", method, err)
+					req := reflect.New(method.ParamType.Elem()).Interface().(proto.Message)
+					proto.Unmarshal(msg.Data, req)
+					fmt.Printf("===>>invoke start 02: %+v|%+v\n", req, err)
+					result := method.Method.Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(req)})
+					fmt.Printf("===>>invoke start 03: %+v|%+v\n", result, err)
+
+					// fmt.Println("====>>>resp start:")
+					// resp, err := handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
+					// fmt.Printf("====>>>resp end: %+v|%+v\n", resp, err)
+					// if err != nil {
+					// 	fmt.Printf("==>>handle callback error: %+v\n", err)
+					// 	return
+					// }
+					// fmt.Printf("==>>handle response is: %+v\n", resp)
 					send := msg
 					send.ReqID = msg.ReqID + 1
 					send.Source = int16(Source_Server)
-					send.Data, err = proto.Marshal(resp.(proto.Message))
+					send.Data, err = proto.Marshal(result[0].Interface().(proto.Message))
 					if err != nil {
 						fmt.Printf("==>>handle marshal error: %+v\n", err)
 					}

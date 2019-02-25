@@ -12,10 +12,14 @@ import (
 	"github.com/leesper/holmes"
 )
 
+type Service struct {
+}
+
 func main() {
 	defer holmes.Start().Stop()
 
 	lizard.Register(1000000, &demo.DemoReq{}, DemoOp)
+	lizard.RegisterService(100, &Service{})
 
 	c, err := net.Dial("tcp", "127.0.0.1:10000")
 	if err != nil {
@@ -60,6 +64,14 @@ func DemoOp(ctx context.Context, msg interface{}) (interface{}, error) {
 		Reply: "oK, reply!",
 	}
 	return resp, nil
+}
+
+func (s *Service) DemoOp2(ctx context.Context, msg *demo.DemoReq) *demo.DemoResp {
+	fmt.Printf("====>>server demo op2:%+v\n", msg)
+	resp := &demo.DemoResp{
+		Reply: "oK, reply!",
+	}
+	return resp
 }
 
 // 注册服务

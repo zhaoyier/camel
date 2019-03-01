@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/md5"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -20,8 +19,14 @@ const (
 	HeartBeat = 0
 )
 
+type Serial struct {
+	Req  int32
+	Resp int32
+}
+
 type Method struct {
 	Service   int32
+	Serial    Serial
 	Method    reflect.Value
 	ParamType reflect.Type //XXXXRequest的实际类型
 }
@@ -55,8 +60,9 @@ var (
 	buf *bytes.Buffer
 	// messageRegistry is the registry of all
 	// message-related unmarshal and handle functions.
-	messageRegistry = make(map[int32]handlerUnmarshaler)
-	serviceMap      = make(map[string]Method)
+	messageRegistry  = make(map[int32]handlerUnmarshaler)
+	serviceMap       = make(map[string]Method)
+	serviceInvokeMap = make(map[int32]Method)
 )
 
 func init() {
@@ -110,7 +116,7 @@ func RegisterService(m int32, src Service) {
 
 	for i := 0; i < t.NumMethod(); i++ {
 		name := t.Method(i).Name
-		name = fmt.Sprintf("%s", md5.Sum([]byte(name)))
+		//name = fmt.Sprintf("%s", md5.Sum([]byte(name)))
 		if _, ok := serviceMap[name]; ok {
 			panic("duplicate register service:" + name)
 		}
@@ -123,12 +129,39 @@ func RegisterService(m int32, src Service) {
 }
 
 func GetServiceMethod(method, version string) (*Method, error) {
-	name := fmt.Sprintf("%s", md5.Sum([]byte(method)))
-	m, ok := serviceMap[name]
+	//name := fmt.Sprintf("%s", md5.Sum([]byte(method)))
+	m, ok := serviceMap[method]
 	if !ok {
 		return nil, errors.New("method not registered:" + method)
 	}
 	return &m, nil
+}
+
+func InitServiceInvokeMap(methods map[string]Serial) {
+	fmt.Printf("====>>service map:%+v|%+v\n", serviceMap, methods)
+	for method, serial := range methods {
+		s, ok := serviceMap[method]
+		if !ok {
+			panic("can not find register method")
+		}
+		if _, ok := serviceInvokeMap[serial.Req]; ok {
+			panic("has register invoke req")
+		}
+		if _, ok := serviceInvokeMap[serial.Resp]; ok {
+			panic("has register invoke resp")
+		}
+		s.Serial = serial
+		serviceInvokeMap[serial.Req] = s
+		serviceInvokeMap[serial.Resp] = s
+	}
+}
+
+func GetInvokeMethodByReq(req int32) *Method {
+	method, ok := serviceInvokeMap[req]
+	if ok {
+		return &method
+	}
+	return nil
 }
 
 // GetHandlerFunc returns the corresponding handler function for msgType.

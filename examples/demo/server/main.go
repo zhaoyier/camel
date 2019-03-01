@@ -12,14 +12,23 @@ import (
 	"github.com/leesper/holmes"
 )
 
-type Service struct {
+type Demo struct {
 }
 
 func main() {
 	defer holmes.Start().Stop()
+	method := make(map[string]lizard.Serial)
+	method["DemoOp2"] = lizard.Serial{
+		Req:  1001,
+		Resp: 1002,
+	}
 
-	lizard.Register(1000000, &demo.DemoReq{}, DemoOp)
-	lizard.RegisterService(100, &Service{})
+	lizard.RegisterService(100, &Demo{})
+	lizard.InitServiceInvokeMap(method)
+
+	//lizard.Register(1000000, &demo.DemoReq{}, DemoOp)
+	//lizard.RegisterService(100, &Service{})
+	//lizard.RegisterService2("100", DemoOp3)
 
 	c, err := net.Dial("tcp", "127.0.0.1:10000")
 	if err != nil {
@@ -66,7 +75,15 @@ func DemoOp(ctx context.Context, msg interface{}) (interface{}, error) {
 	return resp, nil
 }
 
-func (s *Service) DemoOp2(ctx context.Context, msg *demo.DemoReq) *demo.DemoResp {
+func (s *Demo) DemoOp2(ctx context.Context, msg *demo.DemoReq) *demo.DemoResp {
+	fmt.Printf("====>>server demo op2:%+v\n", msg)
+	resp := &demo.DemoResp{
+		Reply: "oK, reply!",
+	}
+	return resp
+}
+
+func DemoOp3(ctx context.Context, msg *demo.DemoReq) *demo.DemoResp {
 	fmt.Printf("====>>server demo op2:%+v\n", msg)
 	resp := &demo.DemoResp{
 		Reply: "oK, reply!",

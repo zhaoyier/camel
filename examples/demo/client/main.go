@@ -14,10 +14,20 @@ import (
 	"github.com/leesper/holmes"
 )
 
+type Demo struct {
+}
+
 func main() {
 	defer holmes.Start().Stop()
-
-	lizard.Register(1000001, &demo.DemoReq{}, DemoOp)
+	method := make(map[string]lizard.Serial)
+	method["DemoOp2"] = lizard.Serial{
+		Req:  1001,
+		Resp: 1002,
+	}
+	lizard.RegisterService(100, &Demo{})
+	lizard.InitServiceInvokeMap(method)
+	// lizard.Register(1000001, &demo.DemoReq{}, DemoOp)
+	// lizard.RegisterService2("100", DemoOp3)
 
 	c, err := net.Dial("tcp", "127.0.0.1:10000")
 	if err != nil {
@@ -67,10 +77,26 @@ func DemoOp(ctx context.Context, msg interface{}) (interface{}, error) {
 	return resp, nil
 }
 
+func (d *Demo) DemoOp2(ctx context.Context, msg *demo.DemoReq) *demo.DemoResp {
+	fmt.Printf("====>>server demo op2:%+v\n", msg)
+	resp := &demo.DemoResp{
+		Reply: "oK, reply!",
+	}
+	return resp
+}
+
+func DemoOp3(ctx context.Context, msg *demo.DemoReq) *demo.DemoResp {
+	fmt.Printf("====>>server demo op2:%+v\n", msg)
+	resp := &demo.DemoResp{
+		Reply: "oK, reply!",
+	}
+	return resp
+}
+
 func Send(conn *lizard.ClientConn, data []byte) {
 	msg := &lizard.ZMessage{
 		Source: int16(lizard.Source_User),
-		ReqID:  1000000,
+		ReqID:  1001,
 		Data:   data,
 	}
 	conn.Write(*msg)

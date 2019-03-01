@@ -27,7 +27,7 @@ const (
 // MessageHandler is a combination of message and its handler function.
 type MessageHandler struct {
 	message ZMessage
-	handler HandlerFunc
+	handler *Method
 }
 
 // WriteCloser is the interface that groups Write and Close methods.
@@ -722,7 +722,7 @@ func readLoop(c WriteCloser, wg *sync.WaitGroup) {
 					go c.(*GatewayConn).transmit2Server(netid, msg)
 				} else if msg.TSource() == Source_Gateway { //G-S
 					fmt.Printf("====>>source is gateway: %+v|%d\n", msg, msg.MessageNumber())
-					handler := GetHandlerFunc(msg.MessageNumber())
+					handler := GetInvokeMethodByReq(msg.MessageNumber())
 					if handler == nil {
 						fmt.Printf("====>>source is gateway, handle is nil: %t\n", onMessage == nil)
 						//onMessage(*msg, c.(WriteCloser))
@@ -738,8 +738,10 @@ func readLoop(c WriteCloser, wg *sync.WaitGroup) {
 					fmt.Printf("====>>transmit2User:%+v\n", msg)
 					go c.(*GatewayConn).transmit2User(msg)
 				} else if msg.TSource() == Source_ToClient { //G-C
+
 					//回调接口
-					handler := GetHandlerFunc(msg.MessageNumber())
+					handler := GetInvokeMethodByReq(msg.MessageNumber())
+					fmt.Printf("====>>>G-C: %+v|%+v\n", msg, handler)
 					if handler == nil {
 						continue
 					}
@@ -908,12 +910,12 @@ func handleLoop(c WriteCloser, wg *sync.WaitGroup) {
 				// 	handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
 				// }
 				go func(conn WriteCloser) {
-					method, err := GetServiceMethod("DemoOp2", "")
-					fmt.Printf("===>>invoke start: %+v|%+v\n", method, err)
-					req := reflect.New(method.ParamType.Elem()).Interface().(proto.Message)
+					//method, err := GetServiceMethod("DemoOp2", "")
+					fmt.Printf("===>>invoke start: %+v|%+v\n", handler, msg)
+					req := reflect.New(handler.ParamType.Elem()).Interface().(proto.Message)
 					proto.Unmarshal(msg.Data, req)
 					fmt.Printf("===>>invoke start 02: %+v|%+v\n", req, err)
-					result := method.Method.Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(req)})
+					result := handler.Method.Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(req)})
 					fmt.Printf("===>>invoke start 03: %+v|%+v\n", result, err)
 
 					// fmt.Println("====>>>resp start:")
@@ -925,22 +927,31 @@ func handleLoop(c WriteCloser, wg *sync.WaitGroup) {
 					// }
 					// fmt.Printf("==>>handle response is: %+v\n", resp)
 					send := msg
-					send.ReqID = msg.ReqID + 1
+					send.ReqID = handler.Serial.Resp
 					send.Source = int16(Source_Server)
+					fmt.Printf("====>>send message: %+v\n", send)
 					send.Data, err = proto.Marshal(result[0].Interface().(proto.Message))
 					if err != nil {
 						fmt.Printf("==>>handle marshal error: %+v\n", err)
 					}
 					conn.Write(send)
 				}(c)
-			} else {
+			} else if msg.TSource() == Source_ToClient {
 				fmt.Println("===>>client handler")
-				msg, handler := msgHandler.message, msgHandler.handler
-				if handler != nil {
-					go func() {
-						handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
-					}()
-				}
+				go func(conn WriteCloser) {
+					fmt.Printf("===>>invoke client start: %+v|%+v\n", handler, msg)
+					req := reflect.New(handler.ParamType.Elem()).Interface().(proto.Message)
+					proto.Unmarshal(msg.Data, req)
+					fmt.Printf("===>>invoke client start 02: %+v|%+v\n", req, err)
+					result := handler.Method.Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(req)})
+					fmt.Printf("===>>invoke client start 03: %+v|%+v\n", result, err)
+				}(c)
+				// msg, handler := msgHandler.message, msgHandler.handler
+				// if handler != nil {
+				// 	go func() {
+				// 		//handler(NewContextWithNetID(ctx, netID), GetRegistryMessage(msg))
+				// 	}()
+				// }
 			}
 
 		// case msgHandler := <-clientHandlerCh:
@@ -976,7 +987,7 @@ func handleLoop(c WriteCloser, wg *sync.WaitGroup) {
 func (sc *GatewayConn) transmit2Server(netid int64, msg *ZMessage) {
 	fmt.Printf("====>>>transmit to server: %+v\n", msg)
 	// 根据请求接口ID查询服务
-	modulo := msg.ReqID / 1000000
+	modulo := msg.ReqID / 1000
 	manager, ok := sc.belong.proxy[modulo]
 	if !ok || len(manager.agents) <= 0 {
 		panic("not find server")
